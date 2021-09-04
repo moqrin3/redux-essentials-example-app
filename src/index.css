@@ -122,10 +122,6 @@ section h1 {
   margin-top: 0.5rem;
 }
 
-.posts-container.disabled {
-  opacity: 0.5;
-}
-
 .post-excerpt h3 {
   margin: 0;
   font-size: 1.5rem;
@@ -157,22 +153,11 @@ button.reaction-button {
   white-space: nowrap;
 }
 
-.spinner {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-}
-
-.spinner h4 {
-  margin: 5px;
-}
-
 /* https://projects.lukehaas.me/css-loaders/ , Loader #3 */
 .loader {
   font-size: 10px;
-  margin: 10px;
-  /* text-indent: -9999em; */
+  margin: 50px auto;
+  text-indent: -9999em;
   width: 5em;
   height: 5em;
   border-radius: 50%;

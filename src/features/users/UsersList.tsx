@@ -1,10 +1,10 @@
 import React from 'react'
-import { useSelector } from 'react-redux'
+import { useAppSelector } from '../../app/hook'
 import { Link } from 'react-router-dom'
 import { selectAllUsers } from './usersSlice'
 
 export const UsersList = () => {
-  const users = useSelector(selectAllUsers)
+  const users = useAppSelector(selectAllUsers)
 
   const renderedUsers = users.map((user) => (
     <li key={user.id}>
@@ -15,7 +15,6 @@ export const UsersList = () => {
   return (
     <section>
       <h2>Users</h2>
-
       <ul>{renderedUsers}</ul>
     </section>
   )

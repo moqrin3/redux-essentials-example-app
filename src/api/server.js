@@ -1,21 +1,23 @@
-import { rest, setupWorker } from 'msw'
-import { factory, oneOf, manyOf, primaryKey } from '@mswjs/data'
+import {
+  Server,
+  Model,
+  Factory,
+  belongsTo,
+  hasMany,
+  association,
+  RestSerializer,
+} from 'miragejs'
+
 import { nanoid } from '@reduxjs/toolkit'
+
 import faker from 'faker'
-import seedrandom from 'seedrandom'
-import { Server as MockSocketServer } from 'mock-socket'
-import { setRandom } from 'txtgen'
-
+import { sentence, paragraph, article, setRandom } from 'txtgen'
 import { parseISO } from 'date-fns'
+import seedrandom from 'seedrandom'
 
-const NUM_USERS = 3
-const POSTS_PER_USER = 3
-const RECENT_NOTIFICATIONS_DAYS = 7
-
-// Add an extra delay to all endpoints, so loading spinners show up.
-const ARTIFICIAL_DELAY_MS = 2000
-
-/* RNG setup */
+const IdSerializer = RestSerializer.extend({
+  serializeIds: 'always',
+})
 
 // Set up a seeded random number generator, so that we get
 // a consistent set of users / entries each time the page loads.
@@ -53,220 +55,6 @@ const randomFromArray = (array) => {
   return array[index]
 }
 
-/* MSW Data Model Setup */
-
-export const db = factory({
-  user: {
-    id: primaryKey(nanoid),
-    firstName: String,
-    lastName: String,
-    name: String,
-    username: String,
-    posts: manyOf('post'),
-  },
-  post: {
-    id: primaryKey(nanoid),
-    title: String,
-    date: String,
-    content: String,
-    reactions: oneOf('reaction'),
-    comments: manyOf('comment'),
-    user: oneOf('user'),
-  },
-  comment: {
-    id: primaryKey(String),
-    date: String,
-    text: String,
-    post: oneOf('post'),
-  },
-  reaction: {
-    id: primaryKey(nanoid),
-    thumbsUp: Number,
-    hooray: Number,
-    heart: Number,
-    rocket: Number,
-    eyes: Number,
-    post: oneOf('post'),
-  },
-})
-
-const createUserData = () => {
-  const firstName = faker.name.firstName()
-  const lastName = faker.name.lastName()
-
-  return {
-    firstName,
-    lastName,
-    name: `${firstName} ${lastName}`,
-    username: faker.internet.userName(),
-  }
-}
-
-const createPostData = (user) => {
-  return {
-    title: faker.lorem.words(),
-    date: faker.date.recent(RECENT_NOTIFICATIONS_DAYS).toISOString(),
-    user,
-    content: faker.lorem.paragraphs(),
-    reactions: db.reaction.create(),
-  }
-}
-
-// Create an initial set of users and posts
-for (let i = 0; i < NUM_USERS; i++) {
-  const author = db.user.create(createUserData())
-
-  for (let j = 0; j < POSTS_PER_USER; j++) {
-    const newPost = createPostData(author)
-    db.post.create(newPost)
-  }
-}
-
-const serializePost = (post) => ({
-  ...post,
-  user: post.user.id,
-})
-
-/* MSW REST API Handlers */
-
-export const handlers = [
-  rest.get('/fakeApi/posts', function (req, res, ctx) {
-    const posts = db.post.getAll().map(serializePost)
-    return res(ctx.delay(ARTIFICIAL_DELAY_MS), ctx.json(posts))
-  }),
-  rest.post('/fakeApi/posts', function (req, res, ctx) {
-    const data = req.body
-
-    if (data.content === 'error') {
-      return res(
-        ctx.delay(ARTIFICIAL_DELAY_MS),
-        ctx.status(500),
-        ctx.json('Server error saving this post!')
-      )
-    }
-
-    data.date = new Date().toISOString()
-
-    const user = db.user.findFirst({ where: { id: { equals: data.user } } })
-    data.user = user
-    data.reactions = db.reaction.create()
-
-    const post = db.post.create(data)
-    return res(ctx.delay(ARTIFICIAL_DELAY_MS), ctx.json(serializePost(post)))
-  }),
-  rest.get('/fakeApi/posts/:postId', function (req, res, ctx) {
-    const post = db.post.findFirst({
-      where: { id: { equals: req.params.postId } },
-    })
-    return res(ctx.delay(ARTIFICIAL_DELAY_MS), ctx.json(serializePost(post)))
-  }),
-  rest.patch('/fakeApi/posts/:postId', (req, res, ctx) => {
-    const { id, ...data } = req.body
-    const updatedPost = db.post.update({
-      where: { id: { equals: req.params.postId } },
-      data,
-    })
-    return res(
-      ctx.delay(ARTIFICIAL_DELAY_MS),
-      ctx.json(serializePost(updatedPost))
-    )
-  }),
-
-  rest.get('/fakeApi/posts/:postId/comments', (req, res, ctx) => {
-    const post = db.post.findFirst({
-      where: { id: { equals: req.params.postId } },
-    })
-    return res(
-      ctx.delay(ARTIFICIAL_DELAY_MS),
-      ctx.json({ comments: post.comments })
-    )
-  }),
-
-  rest.post('/fakeApi/posts/:postId/reactions', (req, res, ctx) => {
-    const postId = req.params.postId
-    const reaction = req.body.reaction
-    const post = db.post.findFirst({
-      where: { id: { equals: postId } },
-    })
-
-    const updatedPost = db.post.update({
-      where: { id: { equals: postId } },
-      data: {
-        reactions: {
-          ...post.reactions,
-          [reaction]: (post.reactions[reaction] += 1),
-        },
-      },
-    })
-
-    return res(
-      ctx.delay(ARTIFICIAL_DELAY_MS),
-      ctx.json(serializePost(updatedPost))
-    )
-  }),
-  rest.get('/fakeApi/notifications', (req, res, ctx) => {
-    const numNotifications = getRandomInt(1, 5)
-
-    let notifications = generateRandomNotifications(
-      undefined,
-      numNotifications,
-      db
-    )
-
-    return res(ctx.delay(ARTIFICIAL_DELAY_MS), ctx.json(notifications))
-  }),
-  rest.get('/fakeApi/users', (req, res, ctx) => {
-    return res(ctx.delay(ARTIFICIAL_DELAY_MS), ctx.json(db.user.getAll()))
-  }),
-]
-
-export const worker = setupWorker(...handlers)
-// worker.printHandlers() // Optional: nice for debugging to see all available route handlers that will be intercepted
-
-/* Mock Websocket Setup */
-
-const socketServer = new MockSocketServer('ws://localhost')
-
-let currentSocket
-
-const sendMessage = (socket, obj) => {
-  socket.send(JSON.stringify(obj))
-}
-
-// Allow our UI to fake the server pushing out some notifications over the websocket,
-// as if other users were interacting with the system.
-const sendRandomNotifications = (socket, since) => {
-  const numNotifications = getRandomInt(1, 5)
-
-  const notifications = generateRandomNotifications(since, numNotifications, db)
-
-  sendMessage(socket, { type: 'notifications', payload: notifications })
-}
-
-export const forceGenerateNotifications = (since) => {
-  sendRandomNotifications(currentSocket, since)
-}
-
-socketServer.on('connection', (socket) => {
-  currentSocket = socket
-
-  socket.on('message', (data) => {
-    const message = JSON.parse(data)
-
-    switch (message.type) {
-      case 'notifications': {
-        const since = message.payload
-        sendRandomNotifications(socket, since)
-        break
-      }
-      default:
-        break
-    }
-  })
-})
-
-/* Random Notifications Generation */
-
 const notificationTemplates = [
   'poked you',
   'says hi!',
@@ -274,29 +62,153 @@ const notificationTemplates = [
   'sent you a gift',
 ]
 
-function generateRandomNotifications(since, numNotifications, db) {
-  const now = new Date()
-  let pastDate
+new Server({
+  routes() {
+    this.namespace = 'fakeApi'
+    this.timing = 1000
 
-  if (since) {
-    pastDate = parseISO(since)
-  } else {
-    pastDate = new Date(now.valueOf())
-    pastDate.setMinutes(pastDate.getMinutes() - 15)
-  }
+    this.resource('users')
+    this.resource('posts')
+    this.resource('comments')
 
-  // Create N random notifications. We won't bother saving these
-  // in the DB - just generate a new batch and return them.
-  const notifications = [...Array(numNotifications)].map(() => {
-    const user = randomFromArray(db.user.getAll())
-    const template = randomFromArray(notificationTemplates)
-    return {
-      id: nanoid(),
-      date: faker.date.between(pastDate, now).toISOString(),
-      message: template,
-      user: user.id,
-    }
-  })
+    const server = this
 
-  return notifications
-}
+    this.post('/posts', function (schema, req) {
+      const data = this.normalizedRequestAttrs()
+      data.date = new Date().toISOString()
+      // Work around some odd behavior by Mirage that's causing an extra
+      // user entry to be created unexpectedly when we only supply a userId.
+      // It really want an entire Model passed in as data.user for some reason.
+      const user = schema.users.find(data.userId)
+      data.user = user
+
+      if (data.content === 'error') {
+        throw new Error('Could not save the post!')
+      }
+
+      const result = server.create('post', data)
+      return result
+    })
+
+    this.get('/posts/:postId/comments', (schema, req) => {
+      const post = schema.posts.find(req.params.postId)
+      return post.comments
+    })
+
+    this.get('/notifications', (schema, req) => {
+      const numNotifications = getRandomInt(1, 5)
+
+      let pastDate
+
+      const now = new Date()
+
+      if (req.queryParams.since) {
+        pastDate = parseISO(req.queryParams.since)
+      } else {
+        pastDate = new Date(now.valueOf())
+        pastDate.setMinutes(pastDate.getMinutes() - 15)
+      }
+
+      // Create N random notifications. We won't bother saving these
+      // in the DB - just generate a new batch and return them.
+      const notifications = [...Array(numNotifications)].map(() => {
+        const user = randomFromArray(schema.db.users)
+        const template = randomFromArray(notificationTemplates)
+        return {
+          id: nanoid(),
+          date: faker.date.between(pastDate, now).toISOString(),
+          message: template,
+          user: user.id,
+          read: false,
+          isNew: true,
+        }
+      })
+
+      return { notifications }
+    })
+  },
+  models: {
+    user: Model.extend({
+      posts: hasMany(),
+    }),
+    post: Model.extend({
+      user: belongsTo(),
+      comments: hasMany(),
+    }),
+    comment: Model.extend({
+      post: belongsTo(),
+    }),
+    notification: Model.extend({}),
+  },
+  factories: {
+    user: Factory.extend({
+      id() {
+        return nanoid()
+      },
+      firstName() {
+        return faker.name.firstName()
+      },
+      lastName() {
+        return faker.name.lastName()
+      },
+      name() {
+        return faker.name.findName(this.firstName, this.lastName)
+      },
+      username() {
+        return faker.internet.userName(this.firstName, this.lastName)
+      },
+
+      afterCreate(user, server) {
+        server.createList('post', 3, { user })
+      },
+    }),
+    post: Factory.extend({
+      id() {
+        return nanoid()
+      },
+      title() {
+        return sentence()
+      },
+      date() {
+        return faker.date.recent(7)
+      },
+      content() {
+        return article(1)
+      },
+      reactions() {
+        return {
+          thumbsUp: 0,
+          hooray: 0,
+          heart: 0,
+          rocket: 0,
+          eyes: 0,
+        }
+      },
+      afterCreate(post, server) {
+        //server.createList('comment', 3, { post })
+      },
+
+      user: association(),
+    }),
+    comment: Factory.extend({
+      id() {
+        return nanoid()
+      },
+      date() {
+        return faker.date.past(2)
+      },
+      text() {
+        return paragraph()
+      },
+      post: association(),
+    }),
+  },
+  serializers: {
+    user: IdSerializer,
+    post: IdSerializer,
+    comment: IdSerializer,
+  },
+  seeds(server) {
+    server.createList('user', 3)
+  },
+})

@@ -1,21 +1,22 @@
-import React, { useLayoutEffect } from 'react'
-import { useSelector, useDispatch } from 'react-redux'
+import React, { useEffect } from 'react'
+import { useSelector } from 'react-redux'
+import { useAppDispatch } from '../../app/hook'
 import { formatDistanceToNow, parseISO } from 'date-fns'
 import classnames from 'classnames'
 
 import { selectAllUsers } from '../users/usersSlice'
 
 import {
-  selectAllNotifications,
   allNotificationsRead,
+  selectAllNotifications,
 } from './notificationsSlice'
 
 export const NotificationsList = () => {
-  const dispatch = useDispatch()
+  const dispatch = useAppDispatch()
   const notifications = useSelector(selectAllNotifications)
   const users = useSelector(selectAllUsers)
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     dispatch(allNotificationsRead())
   })
 
